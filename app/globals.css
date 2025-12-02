@@ -29,7 +29,7 @@ body {
     rgb(var(--background-start-rgb));
 }
 
-/* 自定义滚动条样式，让赛博朋克风更彻底 */
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -42,5 +42,5 @@ body {
   border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #d946ef; /* 悬停变洋红色 */
+  background: #d946ef; 
 }

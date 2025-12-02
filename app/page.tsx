@@ -7,7 +7,11 @@ import { db } from './firebaseConfig';
 // 2. Web3 Imports
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { Transaction, SystemProgram, PublicKey, TransactionInstruction } from '@solana/web3.js';
+// 3. Metaplex Umi Imports (For Real NFT Minting)
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import { walletAdapterIdentity } from '@metaplex-foundation/umi-signer-wallet-adapters';
+import { createNft, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
+import { generateSigner, percentAmount } from '@metaplex-foundation/umi';
 import SolanaProvider from './web3/SolanaProvider';
 
 // === Multilingual Configuration ===
@@ -24,16 +28,16 @@ const TRANSLATIONS = {
     lockedTitle: "NFT 成就系统",
     lockedDesc: "总资产达到 $100,000 解锁",
     mintBtn: "铸造独角兽 NFT",
-    minting: "正在上链...",
+    minting: "正在链上铸造...",
     minted: "已拥有独角兽 NFT",
-    viewProof: "查看链上证书",
+    viewProof: "查看 NFT 详情",
     effect: "效果",
     sec: "秒",
     notEnough: "资金不足，快去手撸！",
     you: " (你)",
     workspace: "联合办公空间 (开发团队)",
     connectWallet: "连接钱包",
-    mintSuccess: "铸造成功！成就已永久记录在 Solana 链上。",
+    mintSuccess: "铸造成功！你的专属 NFT 已发放到钱包。",
     reset: "重置数据 (调试)",
     // Modal Texts
     sysNotice: "系统通知 // SYSTEM_NOTICE",
@@ -56,16 +60,16 @@ const TRANSLATIONS = {
     lockedTitle: "NFT Achievement",
     lockedDesc: "Reach $100,000 to Unlock",
     mintBtn: "Mint Unicorn NFT",
-    minting: "Minting...",
+    minting: "Minting on Chain...",
     minted: "Unicorn NFT Owned",
-    viewProof: "View On-Chain Proof",
+    viewProof: "View NFT on Solscan",
     effect: "Effect",
     sec: "s",
     notEnough: "Insufficient funds!",
     you: " (You)",
     workspace: "Co-working Space (Dev Team)",
     connectWallet: "Connect Wallet",
-    mintSuccess: "Minted Successfully! Achievement recorded on Solana.",
+    mintSuccess: "Minted Successfully! NFT sent to your wallet.",
     reset: "Reset Data (Debug)",
     // Modal Texts
     sysNotice: "SYSTEM_NOTICE",
@@ -129,7 +133,8 @@ const INITIAL_UPGRADES = [
 
 // === Inner Game Component ===
 function GameContent() {
-  const { publicKey, sendTransaction } = useWallet();
+  const wallet = useWallet(); // Get full wallet object for Umi
+  const { publicKey } = wallet;
   const { connection } = useConnection();
 
   const [lang, setLang] = useState<'en' | 'zh'>('en');
@@ -147,9 +152,9 @@ function GameContent() {
   // Minting State
   const [hasMinted, setHasMinted] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
-  const [mintSignature, setMintSignature] = useState(""); 
+  const [mintAddress, setMintAddress] = useState(""); 
 
-  // Modal State (New)
+  // Modal State
   const [modal, setModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -223,7 +228,7 @@ function GameContent() {
     setAutoRate(0);
     setInventory({});
     setHasMinted(false);
-    setMintSignature("");
+    setMintAddress("");
     
     const saveKey = `founder_gameState_${userId}`;
     const saved = localStorage.getItem(saveKey);
@@ -237,7 +242,7 @@ function GameContent() {
         setAutoRate(parsed.autoRate ?? 0);
         setInventory(parsed.inventory ?? {});
         setHasMinted(parsed.hasMinted ?? false);
-        setMintSignature(parsed.mintSignature || ""); 
+        setMintAddress(parsed.mintAddress || ""); 
       } catch (e) {
         console.error("Save corrupted", e);
       }
@@ -257,11 +262,11 @@ function GameContent() {
       autoRate,
       inventory,
       hasMinted,
-      mintSignature,
+      mintAddress,
       timestamp: Date.now()
     };
     localStorage.setItem(saveKey, JSON.stringify(gameState));
-  }, [balance, lifetimeEarnings, clickPower, autoRate, inventory, hasMinted, mintSignature, isLoaded, userId]);
+  }, [balance, lifetimeEarnings, clickPower, autoRate, inventory, hasMinted, mintAddress, isLoaded, userId]);
 
   // 4. Sync Ref
   useEffect(() => {
@@ -336,46 +341,45 @@ function GameContent() {
       setInventory(p => ({ ...p, [upgrade.id]: currentCount + 1 }));
       if (upgrade.type === 'auto') setAutoRate(p => p + upgrade.rate);
     } else {
-      showAlert(t.notEnough, "ACCESS DENIED"); // Use custom modal
+      showAlert(t.notEnough, "ACCESS DENIED"); 
     }
   };
 
+  // === REAL NFT MINTING with Umi ===
   const mintNft = async () => {
     if (!publicKey) {
-        showAlert(t.connectFirst); // Use custom modal
+        showAlert(t.connectFirst);
         return;
     }
     setIsMinting(true);
 
     try {
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        // 1. Initialize Umi
+        const umi = createUmi(connection.rpcEndpoint)
+            .use(mplTokenMetadata())
+            .use(walletAdapterIdentity(wallet));
 
-        const transaction = new Transaction({
-            feePayer: publicKey,
-            recentBlockhash: blockhash,
-        }).add(
-            // Removed Memo instruction to prevent "ProgramAccountNotFound" errors
-            SystemProgram.transfer({
-                fromPubkey: publicKey,
-                toPubkey: publicKey,
-                lamports: 10000, // 0.00001 SOL
-            })
-        );
+        // 2. Generate Mint Account
+        const mint = generateSigner(umi);
 
-        const signature = await sendTransaction(transaction, connection, {
-            skipPreflight: true, 
-        });
-        
-        console.log("Mint Transaction Sent:", signature);
-        
-        await connection.confirmTransaction({
-            signature,
-            blockhash,
-            lastValidBlockHeight
-        }, 'confirmed');
+        // 3. Create and Mint
+        // Using a sample JSON. In production, upload specific metadata to Arweave/IPFS.
+        const uri = "https://raw.githubusercontent.com/solana-developers/professional-education/main/labs/sample-nft-offchain-data.json";
+
+        await createNft(umi, {
+            mint,
+            name: "Unicorn Founder",
+            symbol: "FNDR",
+            uri: uri,
+            sellerFeeBasisPoints: percentAmount(0),
+        }).sendAndConfirm(umi);
+
+        // 4. Success
+        const mintAddressStr = mint.publicKey.toString();
+        console.log("Minted NFT Address:", mintAddressStr);
 
         setHasMinted(true);
-        setMintSignature(signature); 
+        setMintAddress(mintAddressStr);
         
         if (userId) {
             const saveKey = `founder_gameState_${userId}`;
@@ -386,30 +390,30 @@ function GameContent() {
                 autoRate,
                 inventory,
                 hasMinted: true,
-                mintSignature: signature,
+                mintAddress: mintAddressStr,
                 timestamp: Date.now()
             };
             localStorage.setItem(saveKey, JSON.stringify(gameState));
         }
 
-        showAlert(t.mintSuccess, "MISSION ACCOMPLISHED"); // Use custom modal
+        showAlert(t.mintSuccess, "MINT COMPLETE");
     } catch (error: any) {
         console.error("Mint failed detail:", error);
-        showAlert(`${t.mintFailed}: ${error?.message || "Unknown error"}. Check console.`); // Use custom modal
+        showAlert(`${t.mintFailed}: ${error?.message || "Unknown error"}. Check console.`);
     } finally {
         setIsMinting(false);
     }
   };
 
   const resetData = () => {
-      showConfirm(t.resetConfirm, () => { // Use custom modal
+      showConfirm(t.resetConfirm, () => {
           setBalance(0);
           setLifetimeEarnings(0);
           setClickPower(1);
           setAutoRate(0);
           setInventory({});
           setHasMinted(false);
-          setMintSignature("");
+          setMintAddress("");
           if (userId) {
               localStorage.removeItem(`founder_gameState_${userId}`);
           }
@@ -522,9 +526,9 @@ function GameContent() {
                         <div className="text-4xl mb-2 drop-shadow-md">🦄</div>
                         <div className="text-green-400 font-bold text-sm tracking-widest">{t.minted}</div>
                         {/* View Proof Button */}
-                        {mintSignature ? (
+                        {mintAddress ? (
                             <a 
-                                href={`https://solscan.io/tx/${mintSignature}?cluster=devnet`} 
+                                href={`https://solscan.io/token/${mintAddress}?cluster=devnet`} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="inline-block mt-2 bg-green-800/50 hover:bg-green-700/50 text-green-300 text-[10px] px-3 py-1 rounded border border-green-500/30 transition-colors font-mono uppercase"

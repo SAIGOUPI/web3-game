@@ -46,7 +46,16 @@ const TRANSLATIONS = {
     cancel: "取消操作",
     connectFirst: "请先连接钱包！",
     mintFailed: "铸造失败",
-    resetConfirm: "确定要重置所有游戏进度吗？此操作不可逆！"
+    resetConfirm: "确定要重置所有游戏进度吗？此操作不可逆！",
+    // Tutorial
+    tutorialNext: "下一步 // NEXT",
+    tutorialFinish: "开始创业 // START",
+    step1Title: "系统接入: 核心循环",
+    step1Desc: "点击左侧按钮编写代码。每一行代码价值 $1。这是你的原始资本积累方式。",
+    step2Title: "资源扩张: 黑市交易",
+    step2Desc: "在右侧商店购买咖啡、键盘或雇佣员工。他们会自动为你产出代码，实现躺赚。",
+    step3Title: "终极目标: 链上成就",
+    step3Desc: "当资产达到 $100,000 时，连接 Phantom 钱包 (仅限 Solana Devnet) 铸造你的独角兽 NFT 勋章！"
   },
   en: {
     title: "Web3 Founder Sim",
@@ -78,7 +87,16 @@ const TRANSLATIONS = {
     cancel: "CANCEL",
     connectFirst: "Please connect wallet first!",
     mintFailed: "Mint Failed",
-    resetConfirm: "Are you sure you want to reset all progress? This cannot be undone!"
+    resetConfirm: "Are you sure you want to reset all progress? This cannot be undone!",
+    // Tutorial
+    tutorialNext: "NEXT >>",
+    tutorialFinish: "INITIALIZE >>",
+    step1Title: "SYSTEM INIT: CORE LOOP",
+    step1Desc: "Click the button to write code. Each line earns you $1. This is your seed capital.",
+    step2Title: "EXPANSION: BLACK MARKET",
+    step2Desc: "Buy coffee, keyboards, or hire devs here. They generate income automatically (Passive Income).",
+    step3Title: "OBJECTIVE: ON-CHAIN PROOF",
+    step3Desc: "Reach $100,000 to unlock NFT minting. Connect Phantom Wallet (Solana Devnet Only) to claim your trophy!"
   }
 };
 
@@ -133,7 +151,7 @@ const INITIAL_UPGRADES = [
 
 // === Inner Game Component ===
 function GameContent() {
-  const wallet = useWallet(); // Get full wallet object for Umi
+  const wallet = useWallet(); 
   const { publicKey } = wallet;
   const { connection } = useConnection();
 
@@ -154,6 +172,9 @@ function GameContent() {
   const [isMinting, setIsMinting] = useState(false);
   const [mintAddress, setMintAddress] = useState(""); 
 
+  // Tutorial State
+  const [tutorialStep, setTutorialStep] = useState(0); // 0: None, 1: Click, 2: Store, 3: NFT
+
   // Modal State
   const [modal, setModal] = useState<{
     isOpen: boolean;
@@ -169,7 +190,6 @@ function GameContent() {
   });
 
   const lifetimeEarningsRef = useRef(lifetimeEarnings);
-  const lastSavedScoreRef = useRef(0);
   const t = TRANSLATIONS[lang];
 
   // Helper functions for Custom Modal
@@ -196,9 +216,14 @@ function GameContent() {
     setModal(prev => ({ ...prev, isOpen: false }));
   };
 
-  // 0. Fix Hydration
+  // 0. Fix Hydration & Tutorial Init
   useEffect(() => {
     setMounted(true);
+    // Check if tutorial seen
+    const seen = localStorage.getItem("has_seen_tutorial_v1");
+    if (!seen) {
+        setTutorialStep(1); // Start tutorial
+    }
   }, []);
 
   // 1. Identity Management
@@ -303,15 +328,13 @@ function GameContent() {
     if (!db || !userId) return;
     const saveInterval = setInterval(async () => {
         const currentScore = lifetimeEarningsRef.current;
-        const lastSaved = lastSavedScoreRef.current;
-        if (currentScore > 0 && currentScore !== lastSaved) {
+        if (currentScore > 0) {
             try {
                 await setDoc(doc(db, "leaderboard", userId), {
                     wallet: userId,
                     score: currentScore,
                     updatedAt: Date.now()
                 });
-                lastSavedScoreRef.current = currentScore;
             } catch (e) { console.error(e); }
         }
     }, 5000);
@@ -341,11 +364,10 @@ function GameContent() {
       setInventory(p => ({ ...p, [upgrade.id]: currentCount + 1 }));
       if (upgrade.type === 'auto') setAutoRate(p => p + upgrade.rate);
     } else {
-      showAlert(t.notEnough, "ACCESS DENIED"); 
+      showAlert(t.notEnough, "ACCESS DENIED"); // Use custom modal
     }
   };
 
-  // === REAL NFT MINTING with Umi ===
   const mintNft = async () => {
     if (!publicKey) {
         showAlert(t.connectFirst);
@@ -354,16 +376,11 @@ function GameContent() {
     setIsMinting(true);
 
     try {
-        // 1. Initialize Umi
         const umi = createUmi(connection.rpcEndpoint)
             .use(mplTokenMetadata())
             .use(walletAdapterIdentity(wallet));
 
-        // 2. Generate Mint Account
         const mint = generateSigner(umi);
-
-        // 3. Create and Mint
-        // Using a sample JSON. In production, upload specific metadata to Arweave/IPFS.
         const uri = "https://raw.githubusercontent.com/solana-developers/professional-education/main/labs/sample-nft-offchain-data.json";
 
         await createNft(umi, {
@@ -374,10 +391,7 @@ function GameContent() {
             sellerFeeBasisPoints: percentAmount(0),
         }).sendAndConfirm(umi);
 
-        // 4. Success
         const mintAddressStr = mint.publicKey.toString();
-        console.log("Minted NFT Address:", mintAddressStr);
-
         setHasMinted(true);
         setMintAddress(mintAddressStr);
         
@@ -414,11 +428,21 @@ function GameContent() {
           setInventory({});
           setHasMinted(false);
           setMintAddress("");
+          localStorage.removeItem("has_seen_tutorial_v1"); // Reset tutorial too
           if (userId) {
               localStorage.removeItem(`founder_gameState_${userId}`);
           }
           window.location.reload();
       });
+  };
+
+  const nextTutorial = () => {
+      if (tutorialStep < 3) {
+          setTutorialStep(prev => prev + 1);
+      } else {
+          setTutorialStep(0); // End tutorial
+          localStorage.setItem("has_seen_tutorial_v1", "true");
+      }
   };
 
   const getCost = (baseCost: number, id: number) => {
@@ -436,8 +460,6 @@ function GameContent() {
         @keyframes code-fall { 0% { transform: translateY(-100%); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(100vh); opacity: 0; } }
         @keyframes work-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         @keyframes modal-pop { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-        .wallet-adapter-button { background-color: transparent !important; border: 1px solid #d946ef !important; color: #d946ef !important; font-family: inherit !important; font-weight: bold !important; height: 36px !important; padding: 0 16px !important; font-size: 12px !important; text-transform: uppercase !important; border-radius: 4px !important; transition: all 0.3s !important; }
-        .wallet-adapter-button:hover { background-color: #d946ef !important; color: white !important; }
       `}</style>
 
       {/* Top Bar */}
@@ -450,6 +472,35 @@ function GameContent() {
         </div>
       </div>
 
+      {/* Tutorial Overlay */}
+      {tutorialStep > 0 && (
+          <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center">
+              {/* Highlight Areas (Transparent Holes using z-index tricks) */}
+              {/* This is a simple centered modal approach for stability */}
+              <div className="bg-black border-2 border-green-500 p-6 max-w-md w-full relative shadow-[0_0_50px_rgba(34,197,94,0.3)]" style={{ animation: 'modal-pop 0.3s' }}>
+                  <div className="absolute top-0 left-0 bg-green-500 text-black text-xs font-bold px-2 py-1">
+                      STEP {tutorialStep} / 3
+                  </div>
+                  
+                  <h3 className="text-xl font-bold text-green-400 mt-4 mb-2">
+                      {tutorialStep === 1 ? t.step1Title : tutorialStep === 2 ? t.step2Title : t.step3Title}
+                  </h3>
+                  <p className="text-gray-300 font-mono text-sm mb-6 leading-relaxed">
+                      {tutorialStep === 1 ? t.step1Desc : tutorialStep === 2 ? t.step2Desc : t.step3Desc}
+                  </p>
+
+                  <div className="flex justify-end">
+                      <button 
+                          onClick={nextTutorial}
+                          className="bg-green-600 hover:bg-green-500 text-black font-bold px-6 py-2 rounded skew-x-[-10deg] transition-all"
+                      >
+                          {tutorialStep === 3 ? t.tutorialFinish : t.tutorialNext}
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Backgrounds */}
       <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-fuchsia-600/20 blur-[100px] rounded-full pointer-events-none animate-pulse"></div>
       <div className="absolute bottom-[-20%] right-[-10%] w-[600px] h-[600px] bg-cyan-600/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -458,7 +509,7 @@ function GameContent() {
       <div className="flex flex-col md:flex-row gap-6 flex-1 mb-32 z-10">
         
         {/* Left: Action */}
-        <div className="flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-8 border-2 border-fuchsia-500/50 shadow-[0_0_30px_rgba(217,70,239,0.15)] flex flex-col items-center justify-center relative overflow-hidden -rotate-1 hover:rotate-0 transition-transform duration-500">
+        <div className={`flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-8 border-2 border-fuchsia-500/50 shadow-[0_0_30px_rgba(217,70,239,0.15)] flex flex-col items-center justify-center relative overflow-hidden -rotate-1 hover:rotate-0 transition-transform duration-500 ${tutorialStep === 1 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black' : ''}`}>
           <div className="absolute top-4 left-4 text-[10px] text-fuchsia-500/50 font-mono tracking-[0.2em] z-20">
               ID: {userId.slice(0, 6)}...{userId.slice(-4)} // {publicKey ? 'CONNECTED' : 'GUEST'}
           </div>
@@ -489,7 +540,8 @@ function GameContent() {
 
         {/* Right: Store & Leaderboard */}
         <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 rotate-1 hover:rotate-0 transition-transform duration-500 h-[calc(100vh-8rem)]">
-          <div className="bg-black/40 backdrop-blur-md rounded-[0_2rem_0_2rem] p-6 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] relative">
+          {/* Store Section */}
+          <div className={`bg-black/40 backdrop-blur-md rounded-[0_2rem_0_2rem] p-6 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] relative ${tutorialStep === 2 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black' : ''}`}>
               <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-fuchsia-400 mb-6 border-b-2 border-purple-500/20 pb-4 uppercase tracking-tighter italic">
                 {t.storeTitle}
               </h3>
@@ -520,7 +572,7 @@ function GameContent() {
               </div>
 
               {/* === NFT Achievement Section === */}
-              <div className="mt-8 transition-all duration-500">
+              <div className={`mt-8 transition-all duration-500 ${tutorialStep === 3 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black rounded-lg' : ''}`}>
                 {hasMinted ? (
                     <div className="p-4 border border-green-500/50 bg-green-900/20 rounded-lg text-center shadow-[0_0_20px_rgba(34,197,94,0.3)] animate-pulse">
                         <div className="text-4xl mb-2 drop-shadow-md">🦄</div>

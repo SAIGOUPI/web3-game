@@ -2,9 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 确保这里没有其他 @import "tailwindcss" 之类的代码 */
-/* 这里可以放置一些全局的自定义样式，比如滚动条 */
-
 :root {
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;

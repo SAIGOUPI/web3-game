@@ -23,7 +23,8 @@ const TRANSLATIONS = {
     clickButton: "搞钱",
     clickDesc: "编写代码",
     storeTitle: "黑市交易",
-    leaderboardTitle: "巨鲸排行榜",
+    leaderboardTitle: "巨鲸榜 (总资产)",
+    cashLeaderboardTitle: "现金榜 (余额)", // Shortened for side-by-side
     waiting: "正在扫描链上数据...",
     lockedTitle: "NFT 成就系统",
     lockedDesc: "总资产达到 $100,000 解锁",
@@ -39,7 +40,6 @@ const TRANSLATIONS = {
     connectWallet: "连接钱包",
     mintSuccess: "铸造成功！你的专属 NFT 已发放到钱包。",
     reset: "重置数据 (调试)",
-    // Modal Texts
     sysNotice: "系统通知 // SYSTEM_NOTICE",
     sysWarning: "系统警告 // SYSTEM_WARNING",
     sysInput: "身份覆写 // IDENTITY_OVERRIDE",
@@ -49,7 +49,6 @@ const TRANSLATIONS = {
     mintFailed: "铸造失败",
     resetConfirm: "确定要重置所有游戏进度吗？此操作不可逆！",
     enterName: "请输入新的黑客代号 (Max 12):",
-    // Tutorial (Missing keys restored)
     tutorialNext: "下一步 // NEXT",
     tutorialFinish: "开始创业 // START",
     step1Title: "系统接入: 核心循环",
@@ -66,7 +65,8 @@ const TRANSLATIONS = {
     clickButton: "HUSTLE",
     clickDesc: "Write Code",
     storeTitle: "Black Market",
-    leaderboardTitle: "Whale Alert",
+    leaderboardTitle: "Whales (Net Worth)",
+    cashLeaderboardTitle: "Cash (Balance)", // Shortened for side-by-side
     waiting: "Scanning Mempool...",
     lockedTitle: "NFT Achievement",
     lockedDesc: "Reach $100,000 to Unlock",
@@ -82,7 +82,6 @@ const TRANSLATIONS = {
     connectWallet: "Connect Wallet",
     mintSuccess: "Minted Successfully! NFT sent to your wallet.",
     reset: "Reset Data (Debug)",
-    // Modal Texts
     sysNotice: "SYSTEM_NOTICE",
     sysWarning: "SYSTEM_WARNING",
     sysInput: "IDENTITY_OVERRIDE",
@@ -92,7 +91,6 @@ const TRANSLATIONS = {
     mintFailed: "Mint Failed",
     resetConfirm: "Are you sure you want to reset all progress? This cannot be undone!",
     enterName: "Enter new hacker alias (Max 12):",
-    // Tutorial (Missing keys restored)
     tutorialNext: "NEXT >>",
     tutorialFinish: "INITIALIZE >>",
     step1Title: "SYSTEM INIT: CORE LOOP",
@@ -166,21 +164,19 @@ function GameContent() {
   const [autoRate, setAutoRate] = useState(0); 
   const [inventory, setInventory] = useState<Record<number, number>>({});
   const [userId, setUserId] = useState("");
-  const [userName, setUserName] = useState(""); // User Name State
+  const [userName, setUserName] = useState(""); 
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [cashLeaderboard, setCashLeaderboard] = useState<any[]>([]); // New State
   const [isLoaded, setIsLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [matrixDrops, setMatrixDrops] = useState<{id: number, left: number, delay: number, duration: number, text: string}[]>([]);
   
-  // Minting State
   const [hasMinted, setHasMinted] = useState(false);
   const [isMinting, setIsMinting] = useState(false);
   const [mintAddress, setMintAddress] = useState(""); 
 
-  // Tutorial State
   const [tutorialStep, setTutorialStep] = useState(0);
 
-  // Modal State
   const [modal, setModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -197,51 +193,27 @@ function GameContent() {
 
   const modalInputRef = useRef<HTMLInputElement>(null);
   const lifetimeEarningsRef = useRef(lifetimeEarnings);
+  const balanceRef = useRef(balance); // New Ref for Balance
   const userNameRef = useRef(userName); 
   const t = TRANSLATIONS[lang];
 
-  // Helper functions for Custom Modal
+  // Helper functions...
   const showAlert = (message: string, title?: string) => {
-    setModal({
-      isOpen: true,
-      title: title || t.sysNotice,
-      message,
-      type: 'alert'
-    });
+    setModal({ isOpen: true, title: title || t.sysNotice, message, type: 'alert' });
   };
-
   const showConfirm = (message: string, onConfirm: () => void) => {
-    setModal({
-      isOpen: true,
-      title: t.sysWarning,
-      message,
-      type: 'confirm',
-      onConfirm
-    });
+    setModal({ isOpen: true, title: t.sysWarning, message, type: 'confirm', onConfirm });
   };
-
   const showPrompt = (message: string, placeholder: string, onConfirm: (val: string) => void) => {
-    setModal({
-      isOpen: true,
-      title: t.sysInput,
-      message,
-      type: 'prompt',
-      inputPlaceholder: placeholder,
-      onConfirm: (val) => onConfirm(val || "")
-    });
+    setModal({ isOpen: true, title: t.sysInput, message, type: 'prompt', inputPlaceholder: placeholder, onConfirm: (val) => onConfirm(val || "") });
   };
+  const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
 
-  const closeModal = () => {
-    setModal(prev => ({ ...prev, isOpen: false }));
-  };
-
-  // 0. Fix Hydration & Tutorial Init
+  // 0. Fix Hydration
   useEffect(() => {
     setMounted(true);
     const seen = localStorage.getItem("has_seen_tutorial_v1");
-    if (!seen) {
-        setTutorialStep(1);
-    }
+    if (!seen) setTutorialStep(1);
   }, []);
 
   // 1. Identity Management
@@ -259,8 +231,6 @@ function GameContent() {
       currentId = guestId;
     }
     
-    // FIXED: Clear username immediately when switching identities to prevent flickering
-    // This ensures render cycle doesn't use old name with new userId
     setUserName(""); 
     setUserId(currentId);
   }, [publicKey]);
@@ -276,11 +246,10 @@ function GameContent() {
     setInventory({});
     setHasMinted(false);
     setMintAddress("");
-    setUserName(""); // Reset name
+    setUserName(""); 
     
     const saveKey = `founder_gameState_${userId}`;
     const saved = localStorage.getItem(saveKey);
-    
     const savedName = localStorage.getItem(`founder_userName_${userId}`);
     if (savedName) setUserName(savedName);
 
@@ -304,7 +273,6 @@ function GameContent() {
   // 3. Auto Save
   useEffect(() => {
     if (!isLoaded || !userId) return;
-    
     const saveKey = `founder_gameState_${userId}`;
     const gameState = {
       balance,
@@ -322,25 +290,21 @@ function GameContent() {
   // 4. Sync Ref
   useEffect(() => {
     lifetimeEarningsRef.current = lifetimeEarnings;
+    balanceRef.current = balance; // Sync Balance Ref
     userNameRef.current = userName;
-  }, [lifetimeEarnings, userName]);
+  }, [lifetimeEarnings, balance, userName]);
 
   // Matrix Rain
   useEffect(() => {
     const drops = Array.from({ length: 30 }).map((_, i) => {
       const randomText = Array.from({ length: 20 }).map(() => Math.random() > 0.5 ? '1' : '0').join('');
-      return {
-        id: i,
-        left: Math.random() * 100,
-        delay: Math.random() * -20,
-        duration: 5 + Math.random() * 10,
-        text: randomText
-      };
+      return { id: i, left: Math.random() * 100, delay: Math.random() * -20, duration: 5 + Math.random() * 10, text: randomText };
     });
     setMatrixDrops(drops);
   }, []);
 
-  // Firebase Listener
+  // Firebase Listeners
+  // Listener 1: Net Worth (Original)
   useEffect(() => {
     if (!db) return;
     const q = query(collection(db, "leaderboard"), orderBy("score", "desc"), limit(10));
@@ -351,23 +315,34 @@ function GameContent() {
     return () => unsubscribe();
   }, []);
 
+  // Listener 2: Cash Balance (New)
+  useEffect(() => {
+    if (!db) return;
+    const q = query(collection(db, "leaderboard"), orderBy("balance", "desc"), limit(10));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setCashLeaderboard(data);
+    }, (e) => console.error(e));
+    return () => unsubscribe();
+  }, []);
+
   // Firebase Upload
   useEffect(() => {
     if (!db || !userId) return;
     const saveInterval = setInterval(async () => {
         const currentScore = lifetimeEarningsRef.current;
+        const currentBalance = balanceRef.current;
         const currentName = userNameRef.current;
+        
         if (currentScore > 0) {
             try {
-                // Construct payload dynamically to avoid overwriting name with null
                 const payload: any = {
                     wallet: userId,
                     score: currentScore,
+                    balance: currentBalance, // Upload Balance
                     updatedAt: Date.now()
                 };
                 
-                // Only update userName if we have a valid one locally
-                // This prevents wiping the server-side name if local state is empty/loading
                 if (currentName && currentName.trim() !== "") {
                     payload.userName = currentName;
                 }
@@ -407,71 +382,33 @@ function GameContent() {
   };
 
   const mintNft = async () => {
-    if (!publicKey) {
-        showAlert(t.connectFirst);
-        return;
-    }
+    if (!publicKey) { showAlert(t.connectFirst); return; }
     setIsMinting(true);
-
     try {
-        const umi = createUmi(connection.rpcEndpoint)
-            .use(mplTokenMetadata())
-            .use(walletAdapterIdentity(wallet));
-
+        const umi = createUmi(connection.rpcEndpoint).use(mplTokenMetadata()).use(walletAdapterIdentity(wallet));
         const mint = generateSigner(umi);
         const uri = "https://raw.githubusercontent.com/solana-developers/professional-education/main/labs/sample-nft-offchain-data.json";
-
-        await createNft(umi, {
-            mint,
-            name: "Unicorn Founder",
-            symbol: "FNDR",
-            uri: uri,
-            sellerFeeBasisPoints: percentAmount(0),
-        }).sendAndConfirm(umi);
-
+        await createNft(umi, { mint, name: "Unicorn Founder", symbol: "FNDR", uri: uri, sellerFeeBasisPoints: percentAmount(0) }).sendAndConfirm(umi);
         const mintAddressStr = mint.publicKey.toString();
         setHasMinted(true);
         setMintAddress(mintAddressStr);
-        
         if (userId) {
             const saveKey = `founder_gameState_${userId}`;
-            const gameState = {
-                balance,
-                lifetimeEarnings,
-                clickPower,
-                autoRate,
-                inventory,
-                hasMinted: true,
-                mintAddress: mintAddressStr,
-                timestamp: Date.now()
-            };
+            const gameState = { balance, lifetimeEarnings, clickPower, autoRate, inventory, hasMinted: true, mintAddress: mintAddressStr, timestamp: Date.now() };
             localStorage.setItem(saveKey, JSON.stringify(gameState));
         }
-
         showAlert(t.mintSuccess, "MINT COMPLETE");
     } catch (error: any) {
         console.error("Mint failed detail:", error);
         showAlert(`${t.mintFailed}: ${error?.message || "Unknown error"}. Check console.`);
-    } finally {
-        setIsMinting(false);
-    }
+    } finally { setIsMinting(false); }
   };
 
   const resetData = () => {
       showConfirm(t.resetConfirm, () => {
-          setBalance(0);
-          setLifetimeEarnings(0);
-          setClickPower(1);
-          setAutoRate(0);
-          setInventory({});
-          setHasMinted(false);
-          setMintAddress("");
-          setUserName("");
+          setBalance(0); setLifetimeEarnings(0); setClickPower(1); setAutoRate(0); setInventory({}); setHasMinted(false); setMintAddress(""); setUserName("");
           localStorage.removeItem("has_seen_tutorial_v1");
-          if (userId) {
-              localStorage.removeItem(`founder_gameState_${userId}`);
-              localStorage.removeItem(`founder_userName_${userId}`);
-          }
+          if (userId) { localStorage.removeItem(`founder_gameState_${userId}`); localStorage.removeItem(`founder_userName_${userId}`); }
           window.location.reload();
       });
   };
@@ -479,20 +416,13 @@ function GameContent() {
   const changeName = () => {
       showPrompt(t.enterName, "Neo...", (newName) => {
           const trimmed = newName.trim().slice(0, 12);
-          if (trimmed) {
-              setUserName(trimmed);
-              localStorage.setItem(`founder_userName_${userId}`, trimmed);
-          }
+          if (trimmed) { setUserName(trimmed); localStorage.setItem(`founder_userName_${userId}`, trimmed); }
       });
   };
 
   const nextTutorial = () => {
-      if (tutorialStep < 3) {
-          setTutorialStep(prev => prev + 1);
-      } else {
-          setTutorialStep(0);
-          localStorage.setItem("has_seen_tutorial_v1", "true");
-      }
+      if (tutorialStep < 3) setTutorialStep(prev => prev + 1);
+      else { setTutorialStep(0); localStorage.setItem("has_seen_tutorial_v1", "true"); }
   };
 
   const getCost = (baseCost: number, id: number) => {
@@ -503,6 +433,28 @@ function GameContent() {
   const toggleLang = () => setLang(p => p === 'en' ? 'zh' : 'en');
   const fontStyle = lang === 'en' ? { fontFamily: 'Consolas, monospace' } : {};
   const UNLOCK_THRESHOLD = 100000;
+
+  // Render Helper for Leaderboard Row
+  const renderLeaderboardRow = (player: any, index: number, isCash: boolean = false) => {
+      let displayName = player.userName; 
+      if (player.id === userId && userName) displayName = userName;
+      if (!displayName) displayName = player.wallet.length > 10 ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` : player.wallet;
+      
+      const value = isCash ? player.balance : player.score;
+
+      return (
+        <div key={player.id} className={`flex justify-between items-center p-2 border-l-2 transform transition-all hover:pl-4 ${player.id === userId ? 'bg-cyan-900/20 border-cyan-400 text-cyan-100' : 'bg-gray-900/30 border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
+            <div className="flex items-center gap-3">
+                <span className={`font-black w-6 text-center italic ${index === 0 ? 'text-yellow-400 text-lg drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]' : index === 1 ? 'text-gray-300 text-md' : index === 2 ? 'text-orange-400 text-md' : 'text-gray-600 text-xs'}`}>{index === 0 ? '1ST' : index === 1 ? '2ND' : index === 2 ? '3RD' : `#${index + 1}`}</span>
+                <span className={`text-xs tracking-tight ${player.id === userId ? 'text-cyan-300 font-bold' : ''}`}>
+                    {displayName}
+                    {player.id === userId && <span className="text-[10px] ml-1 opacity-70">{t.you}</span>}
+                </span>
+            </div>
+            <span className="text-cyan-400 font-bold text-sm">${value?.toLocaleString() || 0}</span>
+        </div>
+      );
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white p-4 flex flex-col transition-all duration-300 overflow-hidden relative" style={fontStyle}>
@@ -528,24 +480,11 @@ function GameContent() {
       {tutorialStep > 0 && (
           <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center">
               <div className="bg-black border-2 border-green-500 p-6 max-w-md w-full relative shadow-[0_0_50px_rgba(34,197,94,0.3)]" style={{ animation: 'modal-pop 0.3s' }}>
-                  <div className="absolute top-0 left-0 bg-green-500 text-black text-xs font-bold px-2 py-1">
-                      STEP {tutorialStep} / 3
-                  </div>
-                  
-                  <h3 className="text-xl font-bold text-green-400 mt-4 mb-2">
-                      {tutorialStep === 1 ? t.step1Title : tutorialStep === 2 ? t.step2Title : t.step3Title}
-                  </h3>
-                  <p className="text-gray-300 font-mono text-sm mb-6 leading-relaxed">
-                      {tutorialStep === 1 ? t.step1Desc : tutorialStep === 2 ? t.step2Desc : t.step3Desc}
-                  </p>
-
+                  <div className="absolute top-0 left-0 bg-green-500 text-black text-xs font-bold px-2 py-1">STEP {tutorialStep} / 3</div>
+                  <h3 className="text-xl font-bold text-green-400 mt-4 mb-2">{tutorialStep === 1 ? t.step1Title : tutorialStep === 2 ? t.step2Title : t.step3Title}</h3>
+                  <p className="text-gray-300 font-mono text-sm mb-6 leading-relaxed">{tutorialStep === 1 ? t.step1Desc : tutorialStep === 2 ? t.step2Desc : t.step3Desc}</p>
                   <div className="flex justify-end">
-                      <button 
-                          onClick={nextTutorial}
-                          className="bg-green-600 hover:bg-green-500 text-black font-bold px-6 py-2 rounded skew-x-[-10deg] transition-all"
-                      >
-                          {tutorialStep === 3 ? t.tutorialFinish : t.tutorialNext}
-                      </button>
+                      <button onClick={nextTutorial} className="bg-green-600 hover:bg-green-500 text-black font-bold px-6 py-2 rounded skew-x-[-10deg] transition-all">{tutorialStep === 3 ? t.tutorialFinish : t.tutorialNext}</button>
                   </div>
               </div>
           </div>
@@ -560,37 +499,17 @@ function GameContent() {
         
         {/* Left: Action */}
         <div className={`flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-8 border-2 border-fuchsia-500/50 shadow-[0_0_30px_rgba(217,70,239,0.15)] flex flex-col items-center justify-center relative overflow-hidden -rotate-1 hover:rotate-0 transition-transform duration-500 ${tutorialStep === 1 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black' : ''}`}>
-          
-          {/* UPDATED: ID & Name Display with Edit Button (Always Visible) */}
           <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-              <div className="text-[10px] text-fuchsia-500/50 font-mono tracking-[0.2em] border border-fuchsia-500/20 px-2 py-1 rounded bg-black/50">
-                  ID: {userName || (userId.length > 10 ? `${userId.slice(0, 6)}...` : userId)}
-              </div>
-              <button 
-                onClick={changeName}
-                className="text-xs text-fuchsia-400 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/30 p-1 rounded transition-colors"
-                title="Change Name"
-              >
-                ✏️
-              </button>
+              <div className="text-[10px] text-fuchsia-500/50 font-mono tracking-[0.2em] border border-fuchsia-500/20 px-2 py-1 rounded bg-black/50">ID: {userName || (userId.length > 10 ? `${userId.slice(0, 6)}...` : userId)}</div>
+              <button onClick={changeName} className="text-xs text-fuchsia-400 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/30 p-1 rounded transition-colors" title="Change Name">✏️</button>
           </div>
-
           <div className="absolute inset-0 opacity-20 pointer-events-none select-none overflow-hidden">
-            {matrixDrops.map((drop) => (
-              <div key={drop.id} className="absolute top-0 text-[10px] text-fuchsia-500 font-mono leading-none break-all"
-                style={{ left: `${drop.left}%`, animation: `code-fall ${drop.duration}s linear infinite`, animationDelay: `${drop.delay}s`, writingMode: 'vertical-rl', textOrientation: 'upright' }}>
-                {drop.text}
-              </div>
-            ))}
+            {matrixDrops.map((drop) => (<div key={drop.id} className="absolute top-0 text-[10px] text-fuchsia-500 font-mono leading-none break-all" style={{ left: `${drop.left}%`, animation: `code-fall ${drop.duration}s linear infinite`, animationDelay: `${drop.delay}s`, writingMode: 'vertical-rl', textOrientation: 'upright' }}>{drop.text}</div>))}
           </div>
           <div className="z-10 text-center mb-10 transform skew-x-[-5deg]">
             <h2 className="text-fuchsia-400 text-xs font-black uppercase tracking-[0.3em] mb-2 drop-shadow-lg">{t.totalAssets}</h2>
-            <div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400 mb-2 tracking-tighter drop-shadow-[0_0_10px_rgba(217,70,239,0.5)]">
-              ${balance.toLocaleString()}
-            </div>
-            <div className="text-cyan-400 text-sm font-bold bg-cyan-900/30 px-3 py-1 rounded inline-block border border-cyan-500/30">
-              +${autoRate} {t.perSecond}
-            </div>
+            <div className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 to-purple-400 mb-2 tracking-tighter drop-shadow-[0_0_10px_rgba(217,70,239,0.5)]">${balance.toLocaleString()}</div>
+            <div className="text-cyan-400 text-sm font-bold bg-cyan-900/30 px-3 py-1 rounded inline-block border border-cyan-500/30">+{autoRate} {t.perSecond}</div>
           </div>
           <button onClick={handleClick} className="z-10 w-56 h-56 rounded-full bg-gradient-to-br from-gray-900 to-black border-[6px] border-fuchsia-500 flex flex-col items-center justify-center transition-all shadow-[0_0_50px_rgba(217,70,239,0.4)] group active:scale-95 active:shadow-[0_0_80px_rgba(217,70,239,0.8)] relative overflow-hidden">
             <div className="absolute inset-0 bg-fuchsia-500/10 rounded-full animate-pulse group-hover:bg-fuchsia-500/20"></div>
@@ -604,9 +523,7 @@ function GameContent() {
         <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-2 rotate-1 hover:rotate-0 transition-transform duration-500 h-[calc(100vh-8rem)]">
           {/* Store Section */}
           <div className={`bg-black/40 backdrop-blur-md rounded-[0_2rem_0_2rem] p-6 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] relative ${tutorialStep === 2 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black' : ''}`}>
-              <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-fuchsia-400 mb-6 border-b-2 border-purple-500/20 pb-4 uppercase tracking-tighter italic">
-                {t.storeTitle}
-              </h3>
+              <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-fuchsia-400 mb-6 border-b-2 border-purple-500/20 pb-4 uppercase tracking-tighter italic">{t.storeTitle}</h3>
               <div className="space-y-4">
               {INITIAL_UPGRADES.map((item) => {
                   const currentCost = getCost(item.cost, item.id);
@@ -632,52 +549,23 @@ function GameContent() {
                   );
               })}
               </div>
-
-              {/* === NFT Achievement Section === */}
               <div className={`mt-8 transition-all duration-500 ${tutorialStep === 3 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black rounded-lg' : ''}`}>
                 {hasMinted ? (
                     <div className="p-4 border border-green-500/50 bg-green-900/20 rounded-lg text-center shadow-[0_0_20px_rgba(34,197,94,0.3)] animate-pulse">
                         <div className="text-4xl mb-2 drop-shadow-md">🦄</div>
                         <div className="text-green-400 font-bold text-sm tracking-widest">{t.minted}</div>
-                        {/* View Proof Button */}
-                        {mintAddress ? (
-                            <a 
-                                href={`https://solscan.io/token/${mintAddress}?cluster=devnet`} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-block mt-2 bg-green-800/50 hover:bg-green-700/50 text-green-300 text-[10px] px-3 py-1 rounded border border-green-500/30 transition-colors font-mono uppercase"
-                            >
-                                🔗 {t.viewProof}
-                            </a>
-                        ) : (
-                            <div className="text-[10px] text-red-400 mt-2 font-mono">
-                                (Proof unavailable for this session)
-                            </div>
-                        )}
+                        {mintAddress ? <a href={`https://solscan.io/token/${mintAddress}?cluster=devnet`} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 bg-green-800/50 hover:bg-green-700/50 text-green-300 text-[10px] px-3 py-1 rounded border border-green-500/30 transition-colors font-mono uppercase">🔗 {t.viewProof}</a> : <div className="text-[10px] text-red-400 mt-2 font-mono">(Proof unavailable for this session)</div>}
                     </div>
                 ) : lifetimeEarnings >= UNLOCK_THRESHOLD ? (
-                    <div 
-                        onClick={!isMinting ? mintNft : undefined}
-                        className={`p-6 border-2 border-yellow-500/50 bg-yellow-900/10 rounded-lg text-center cursor-pointer hover:bg-yellow-900/20 transition-all group ${isMinting ? 'opacity-50 pointer-events-none' : ''}`}
-                    >
+                    <div onClick={!isMinting ? mintNft : undefined} className={`p-6 border-2 border-yellow-500/50 bg-yellow-900/10 rounded-lg text-center cursor-pointer hover:bg-yellow-900/20 transition-all group ${isMinting ? 'opacity-50 pointer-events-none' : ''}`}>
                         <div className="text-yellow-400 font-black text-xl mb-3 animate-bounce">🎉 ACHIEVEMENT UNLOCKED</div>
-                        <button className="bg-gradient-to-r from-yellow-500 to-orange-500 text-black font-black px-8 py-3 rounded-full hover:scale-105 transition-transform shadow-lg shadow-orange-500/30 uppercase tracking-wider text-sm">
-                            {isMinting ? t.minting : t.mintBtn}
-                        </button>
+                        <button className="bg-gradient-to-r from-yellow-500 to-orange-500 text-black font-black px-8 py-3 rounded-full hover:scale-105 transition-transform shadow-lg shadow-orange-500/30 uppercase tracking-wider text-sm">{isMinting ? t.minting : t.mintBtn}</button>
                         <div className="text-[10px] text-yellow-500/50 mt-3 font-mono">Gas fee only (~0.00001 SOL)</div>
                     </div>
                 ) : (
                     <div className="p-4 border-2 border-dashed border-gray-700 rounded-lg text-center opacity-70 bg-black/30">
-                        <div className="flex justify-between text-xs text-gray-500 uppercase tracking-widest mb-2">
-                            <span>🔒 {t.lockedTitle}</span>
-                            <span>{Math.floor((lifetimeEarnings / UNLOCK_THRESHOLD) * 100)}%</span>
-                        </div>
-                        <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-gray-700">
-                            <div 
-                                className="bg-gradient-to-r from-fuchsia-600 to-purple-600 h-full transition-all duration-500 shadow-[0_0_10px_rgba(192,38,211,0.5)]" 
-                                style={{width: `${Math.min(100, (lifetimeEarnings / UNLOCK_THRESHOLD) * 100)}%`}}
-                            ></div>
-                        </div>
+                        <div className="flex justify-between text-xs text-gray-500 uppercase tracking-widest mb-2"><span>🔒 {t.lockedTitle}</span><span>{Math.floor((lifetimeEarnings / UNLOCK_THRESHOLD) * 100)}%</span></div>
+                        <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden border border-gray-700"><div className="bg-gradient-to-r from-fuchsia-600 to-purple-600 h-full transition-all duration-500 shadow-[0_0_10px_rgba(192,38,211,0.5)]" style={{width: `${Math.min(100, (lifetimeEarnings / UNLOCK_THRESHOLD) * 100)}%`}}></div></div>
                         <p className="text-[10px] text-gray-600 mt-2 font-mono">${lifetimeEarnings.toLocaleString()} / ${UNLOCK_THRESHOLD.toLocaleString()}</p>
                         <p className="text-[10px] text-gray-500 mt-1 italic">{t.lockedDesc}</p>
                     </div>
@@ -685,44 +573,29 @@ function GameContent() {
               </div>
           </div>
 
-          <div className="bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-6 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-              <h3 className="text-xl font-black text-cyan-400 mb-4 flex items-center gap-2 uppercase tracking-tight border-b border-cyan-500/20 pb-2">
-                  <span className="animate-bounce">🏆</span> {t.leaderboardTitle}
-              </h3>
-              {!db ? <div className="text-xs text-cyan-500/50 p-4 text-center border border-dashed border-cyan-900 rounded font-mono">[ SYSTEM OFFLINE ]<br/>Connect Firebase</div> : (
-                  <div className="space-y-2 font-mono">
-                      {leaderboard.length === 0 && <div className="text-cyan-500/50 text-sm text-center py-4 animate-pulse">{t.waiting}</div>}
-                      {leaderboard.map((player, index) => {
-                          // Calculate display name logic
-                          let displayName = player.userName; // Default to remote name
-                          
-                          // If it's me, and I have a local name input, override to prevent flickering
-                          if (player.id === userId && userName) {
-                              displayName = userName;
-                          }
+          {/* Leaderboards Container (Side-by-Side) */}
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* Leaderboard Section 1: Total Assets */}
+            <div className="flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-6 border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
+                <h3 className="text-xl font-black text-cyan-400 mb-4 flex items-center gap-2 uppercase tracking-tight border-b border-cyan-500/20 pb-2"><span className="animate-bounce">🏆</span> {t.leaderboardTitle}</h3>
+                {!db ? <div className="text-xs text-cyan-500/50 p-4 text-center border border-dashed border-cyan-900 rounded font-mono">[ SYSTEM OFFLINE ]<br/>Connect Firebase</div> : (
+                    <div className="space-y-2 font-mono">
+                        {leaderboard.length === 0 && <div className="text-cyan-500/50 text-sm text-center py-4 animate-pulse">{t.waiting}</div>}
+                        {leaderboard.map((player, index) => renderLeaderboardRow(player, index))}
+                    </div>
+                )}
+            </div>
 
-                          // Fallback to wallet address if no name exists
-                          if (!displayName) {
-                              displayName = player.wallet.length > 10 
-                                  ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` 
-                                  : player.wallet;
-                          }
-
-                          return (
-                          <div key={player.id} className={`flex justify-between items-center p-2 border-l-2 transform transition-all hover:pl-4 ${player.id === userId ? 'bg-cyan-900/20 border-cyan-400 text-cyan-100' : 'bg-gray-900/30 border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
-                              <div className="flex items-center gap-3">
-                                  <span className={`font-black w-6 text-center italic ${index === 0 ? 'text-yellow-400 text-lg drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]' : index === 1 ? 'text-gray-300 text-md' : index === 2 ? 'text-orange-400 text-md' : 'text-gray-600 text-xs'}`}>{index === 0 ? '1ST' : index === 1 ? '2ND' : index === 2 ? '3RD' : `#${index + 1}`}</span>
-                                  <span className={`text-xs tracking-tight ${player.id === userId ? 'text-cyan-300 font-bold' : ''}`}>
-                                      {displayName}
-                                      {player.id === userId && <span className="text-[10px] ml-1 opacity-70">{t.you}</span>}
-                                  </span>
-                              </div>
-                              <span className="text-cyan-400 font-bold text-sm">${player.score?.toLocaleString()}</span>
-                          </div>
-                          );
-                      })}
-                  </div>
-              )}
+            {/* Leaderboard Section 2: Cash Balance */}
+            <div className="flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-6 border border-green-500/30 shadow-[0_0_20px_rgba(34,197,94,0.1)]">
+                <h3 className="text-xl font-black text-green-400 mb-4 flex items-center gap-2 uppercase tracking-tight border-b border-green-500/20 pb-2"><span className="animate-pulse">💰</span> {t.cashLeaderboardTitle}</h3>
+                {!db ? <div className="text-xs text-green-500/50 p-4 text-center border border-dashed border-green-900 rounded font-mono">[ SYSTEM OFFLINE ]<br/>Connect Firebase</div> : (
+                    <div className="space-y-2 font-mono">
+                        {cashLeaderboard.length === 0 && <div className="text-green-500/50 text-sm text-center py-4 animate-pulse">{t.waiting}</div>}
+                        {cashLeaderboard.map((player, index) => renderLeaderboardRow(player, index, true))}
+                    </div>
+                )}
+            </div>
           </div>
         </div>
       </div>
@@ -752,74 +625,20 @@ function GameContent() {
 
       {/* DEBUG: Reset Button */}
       <div className="fixed bottom-2 right-2 z-50">
-          <button 
-            onClick={resetData}
-            className="text-[10px] text-red-500/30 hover:text-red-500 hover:bg-red-900/20 px-2 py-1 rounded transition-colors uppercase tracking-widest"
-          >
-            [ {t.reset} ]
-          </button>
+          <button onClick={resetData} className="text-[10px] text-red-500/30 hover:text-red-500 hover:bg-red-900/20 px-2 py-1 rounded transition-colors uppercase tracking-widest">[ {t.reset} ]</button>
       </div>
 
       {/* --- CUSTOM MODAL --- */}
       {modal.isOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div 
-            className="bg-black/90 border-2 border-fuchsia-500 shadow-[0_0_30px_rgba(217,70,239,0.3)] rounded-lg max-w-sm w-full p-6 relative overflow-hidden"
-            style={{ animation: 'modal-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}
-          >
-            {/* Decorative corners */}
-            <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400"></div>
-            <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400"></div>
-            <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div>
-            <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-cyan-400"></div>
-
-            <h3 className="text-xl font-black text-fuchsia-400 mb-4 uppercase tracking-widest border-b border-fuchsia-500/30 pb-2">
-              {modal.title}
-            </h3>
-            
-            <p className="text-gray-300 mb-6 font-mono text-sm leading-relaxed">
-              {modal.message}
-            </p>
-
-            {/* Input Field for Prompt */}
-            {modal.type === 'prompt' && (
-                <div className="mb-6">
-                    <input 
-                        ref={modalInputRef}
-                        type="text" 
-                        placeholder={modal.inputPlaceholder}
-                        className="w-full bg-gray-900 border border-fuchsia-500/50 rounded p-2 text-white font-mono focus:outline-none focus:border-fuchsia-400 focus:ring-1 focus:ring-fuchsia-400 transition-all"
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                if (modal.onConfirm) modal.onConfirm(e.currentTarget.value);
-                                closeModal();
-                            }
-                        }}
-                    />
-                </div>
-            )}
-
+          <div className="bg-black/90 border-2 border-fuchsia-500 shadow-[0_0_30px_rgba(217,70,239,0.3)] rounded-lg max-w-sm w-full p-6 relative overflow-hidden" style={{ animation: 'modal-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)' }}>
+            <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-cyan-400"></div><div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-cyan-400"></div><div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-cyan-400"></div><div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-cyan-400"></div>
+            <h3 className="text-xl font-black text-fuchsia-400 mb-4 uppercase tracking-widest border-b border-fuchsia-500/30 pb-2">{modal.title}</h3>
+            <p className="text-gray-300 mb-6 font-mono text-sm leading-relaxed">{modal.message}</p>
+            {modal.type === 'prompt' && (<div className="mb-6"><input ref={modalInputRef} type="text" placeholder={modal.inputPlaceholder} className="w-full bg-gray-900 border border-fuchsia-500/50 rounded p-2 text-white font-mono focus:outline-none focus:border-fuchsia-400 focus:ring-1 focus:ring-fuchsia-400 transition-all" onKeyDown={(e) => { if (e.key === 'Enter') { if (modal.onConfirm) modal.onConfirm(e.currentTarget.value); closeModal(); } }}/></div>)}
             <div className="flex justify-end gap-3">
-              {(modal.type === 'confirm' || modal.type === 'prompt') && (
-                <button 
-                  onClick={closeModal}
-                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white border border-gray-600 hover:border-gray-400 rounded transition-all"
-                >
-                  {t.cancel}
-                </button>
-              )}
-              <button 
-                onClick={() => {
-                  if (modal.onConfirm) {
-                      const val = modalInputRef.current?.value;
-                      modal.onConfirm(val);
-                  }
-                  closeModal();
-                }}
-                className="px-6 py-2 text-xs font-bold uppercase tracking-wider bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded shadow-[0_0_15px_rgba(217,70,239,0.5)] transition-all"
-              >
-                {t.confirm}
-              </button>
+              {(modal.type === 'confirm' || modal.type === 'prompt') && (<button onClick={closeModal} className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white border border-gray-600 hover:border-gray-400 rounded transition-all">{t.cancel}</button>)}
+              <button onClick={() => { if (modal.onConfirm) { const val = modalInputRef.current?.value; modal.onConfirm(val); } closeModal(); }} className="px-6 py-2 text-xs font-bold uppercase tracking-wider bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded shadow-[0_0_15px_rgba(217,70,239,0.5)] transition-all">{t.confirm}</button>
             </div>
           </div>
         </div>

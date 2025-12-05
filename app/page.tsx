@@ -7,7 +7,7 @@ import { db } from './firebaseConfig';
 // 2. Web3 Imports
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-// 3. Metaplex Umi Imports (For Real NFT Minting)
+// 3. Metaplex Umi Imports
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { walletAdapterIdentity } from '@metaplex-foundation/umi-signer-wallet-adapters';
 import { createNft, mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata';
@@ -42,20 +42,13 @@ const TRANSLATIONS = {
     // Modal Texts
     sysNotice: "系统通知 // SYSTEM_NOTICE",
     sysWarning: "系统警告 // SYSTEM_WARNING",
+    sysInput: "身份覆写 // IDENTITY_OVERRIDE",
     confirm: "确认执行",
     cancel: "取消操作",
     connectFirst: "请先连接钱包！",
     mintFailed: "铸造失败",
     resetConfirm: "确定要重置所有游戏进度吗？此操作不可逆！",
-    // Tutorial
-    tutorialNext: "下一步 // NEXT",
-    tutorialFinish: "开始创业 // START",
-    step1Title: "系统接入: 核心循环",
-    step1Desc: "点击左侧按钮编写代码。每一行代码价值 $1。这是你的原始资本积累方式。",
-    step2Title: "资源扩张: 黑市交易",
-    step2Desc: "在右侧商店购买咖啡、键盘或雇佣员工。他们会自动为你产出代码，实现躺赚。",
-    step3Title: "终极目标: 链上成就",
-    step3Desc: "当资产达到 $100,000 时，连接 Phantom 钱包 (仅限 Solana Devnet) 铸造你的独角兽 NFT 勋章！"
+    enterName: "请输入新的黑客代号 (Max 12):"
   },
   en: {
     title: "Web3 Founder Sim",
@@ -83,20 +76,13 @@ const TRANSLATIONS = {
     // Modal Texts
     sysNotice: "SYSTEM_NOTICE",
     sysWarning: "SYSTEM_WARNING",
+    sysInput: "IDENTITY_OVERRIDE",
     confirm: "CONFIRM",
     cancel: "CANCEL",
     connectFirst: "Please connect wallet first!",
     mintFailed: "Mint Failed",
     resetConfirm: "Are you sure you want to reset all progress? This cannot be undone!",
-    // Tutorial
-    tutorialNext: "NEXT >>",
-    tutorialFinish: "INITIALIZE >>",
-    step1Title: "SYSTEM INIT: CORE LOOP",
-    step1Desc: "Click the button to write code. Each line earns you $1. This is your seed capital.",
-    step2Title: "EXPANSION: BLACK MARKET",
-    step2Desc: "Buy coffee, keyboards, or hire devs here. They generate income automatically (Passive Income).",
-    step3Title: "OBJECTIVE: ON-CHAIN PROOF",
-    step3Desc: "Reach $100,000 to unlock NFT minting. Connect Phantom Wallet (Solana Devnet Only) to claim your trophy!"
+    enterName: "Enter new hacker alias (Max 12):"
   }
 };
 
@@ -151,7 +137,7 @@ const INITIAL_UPGRADES = [
 
 // === Inner Game Component ===
 function GameContent() {
-  const wallet = useWallet(); 
+  const wallet = useWallet();
   const { publicKey } = wallet;
   const { connection } = useConnection();
 
@@ -162,6 +148,7 @@ function GameContent() {
   const [autoRate, setAutoRate] = useState(0); 
   const [inventory, setInventory] = useState<Record<number, number>>({});
   const [userId, setUserId] = useState("");
+  const [userName, setUserName] = useState(""); // User Name State
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -173,15 +160,16 @@ function GameContent() {
   const [mintAddress, setMintAddress] = useState(""); 
 
   // Tutorial State
-  const [tutorialStep, setTutorialStep] = useState(0); // 0: None, 1: Click, 2: Store, 3: NFT
+  const [tutorialStep, setTutorialStep] = useState(0);
 
   // Modal State
   const [modal, setModal] = useState<{
     isOpen: boolean;
     title: string;
     message: string;
-    type: 'alert' | 'confirm';
-    onConfirm?: () => void;
+    type: 'alert' | 'confirm' | 'prompt';
+    inputPlaceholder?: string;
+    onConfirm?: (inputValue?: string) => void;
   }>({
     isOpen: false,
     title: '',
@@ -189,7 +177,9 @@ function GameContent() {
     type: 'alert'
   });
 
+  const modalInputRef = useRef<HTMLInputElement>(null);
   const lifetimeEarningsRef = useRef(lifetimeEarnings);
+  const userNameRef = useRef(userName); 
   const t = TRANSLATIONS[lang];
 
   // Helper functions for Custom Modal
@@ -212,6 +202,17 @@ function GameContent() {
     });
   };
 
+  const showPrompt = (message: string, placeholder: string, onConfirm: (val: string) => void) => {
+    setModal({
+      isOpen: true,
+      title: t.sysInput,
+      message,
+      type: 'prompt',
+      inputPlaceholder: placeholder,
+      onConfirm: (val) => onConfirm(val || "")
+    });
+  };
+
   const closeModal = () => {
     setModal(prev => ({ ...prev, isOpen: false }));
   };
@@ -219,10 +220,9 @@ function GameContent() {
   // 0. Fix Hydration & Tutorial Init
   useEffect(() => {
     setMounted(true);
-    // Check if tutorial seen
     const seen = localStorage.getItem("has_seen_tutorial_v1");
     if (!seen) {
-        setTutorialStep(1); // Start tutorial
+        setTutorialStep(1);
     }
   }, []);
 
@@ -254,10 +254,14 @@ function GameContent() {
     setInventory({});
     setHasMinted(false);
     setMintAddress("");
+    setUserName(""); // Reset name
     
     const saveKey = `founder_gameState_${userId}`;
     const saved = localStorage.getItem(saveKey);
     
+    const savedName = localStorage.getItem(`founder_userName_${userId}`);
+    if (savedName) setUserName(savedName);
+
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -296,7 +300,8 @@ function GameContent() {
   // 4. Sync Ref
   useEffect(() => {
     lifetimeEarningsRef.current = lifetimeEarnings;
-  }, [lifetimeEarnings]);
+    userNameRef.current = userName;
+  }, [lifetimeEarnings, userName]);
 
   // Matrix Rain
   useEffect(() => {
@@ -313,7 +318,7 @@ function GameContent() {
     setMatrixDrops(drops);
   }, []);
 
-  // Firebase
+  // Firebase Listener
   useEffect(() => {
     if (!db) return;
     const q = query(collection(db, "leaderboard"), orderBy("score", "desc"), limit(10));
@@ -324,17 +329,20 @@ function GameContent() {
     return () => unsubscribe();
   }, []);
 
+  // Firebase Upload
   useEffect(() => {
     if (!db || !userId) return;
     const saveInterval = setInterval(async () => {
         const currentScore = lifetimeEarningsRef.current;
+        const currentName = userNameRef.current;
         if (currentScore > 0) {
             try {
                 await setDoc(doc(db, "leaderboard", userId), {
                     wallet: userId,
+                    userName: currentName || null,
                     score: currentScore,
                     updatedAt: Date.now()
-                });
+                }, { merge: true });
             } catch (e) { console.error(e); }
         }
     }, 5000);
@@ -364,7 +372,7 @@ function GameContent() {
       setInventory(p => ({ ...p, [upgrade.id]: currentCount + 1 }));
       if (upgrade.type === 'auto') setAutoRate(p => p + upgrade.rate);
     } else {
-      showAlert(t.notEnough, "ACCESS DENIED"); // Use custom modal
+      showAlert(t.notEnough, "ACCESS DENIED"); 
     }
   };
 
@@ -428,11 +436,23 @@ function GameContent() {
           setInventory({});
           setHasMinted(false);
           setMintAddress("");
-          localStorage.removeItem("has_seen_tutorial_v1"); // Reset tutorial too
+          setUserName("");
+          localStorage.removeItem("has_seen_tutorial_v1");
           if (userId) {
               localStorage.removeItem(`founder_gameState_${userId}`);
+              localStorage.removeItem(`founder_userName_${userId}`);
           }
           window.location.reload();
+      });
+  };
+
+  const changeName = () => {
+      showPrompt(t.enterName, "Neo...", (newName) => {
+          const trimmed = newName.trim().slice(0, 12);
+          if (trimmed) {
+              setUserName(trimmed);
+              localStorage.setItem(`founder_userName_${userId}`, trimmed);
+          }
       });
   };
 
@@ -440,7 +460,7 @@ function GameContent() {
       if (tutorialStep < 3) {
           setTutorialStep(prev => prev + 1);
       } else {
-          setTutorialStep(0); // End tutorial
+          setTutorialStep(0);
           localStorage.setItem("has_seen_tutorial_v1", "true");
       }
   };
@@ -460,6 +480,8 @@ function GameContent() {
         @keyframes code-fall { 0% { transform: translateY(-100%); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(100vh); opacity: 0; } }
         @keyframes work-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         @keyframes modal-pop { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        .wallet-adapter-button { background-color: transparent !important; border: 1px solid #d946ef !important; color: #d946ef !important; font-family: inherit !important; font-weight: bold !important; height: 36px !important; padding: 0 16px !important; font-size: 12px !important; text-transform: uppercase !important; border-radius: 4px !important; transition: all 0.3s !important; }
+        .wallet-adapter-button:hover { background-color: #d946ef !important; color: white !important; }
       `}</style>
 
       {/* Top Bar */}
@@ -475,8 +497,6 @@ function GameContent() {
       {/* Tutorial Overlay */}
       {tutorialStep > 0 && (
           <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center">
-              {/* Highlight Areas (Transparent Holes using z-index tricks) */}
-              {/* This is a simple centered modal approach for stability */}
               <div className="bg-black border-2 border-green-500 p-6 max-w-md w-full relative shadow-[0_0_50px_rgba(34,197,94,0.3)]" style={{ animation: 'modal-pop 0.3s' }}>
                   <div className="absolute top-0 left-0 bg-green-500 text-black text-xs font-bold px-2 py-1">
                       STEP {tutorialStep} / 3
@@ -510,9 +530,21 @@ function GameContent() {
         
         {/* Left: Action */}
         <div className={`flex-1 bg-black/40 backdrop-blur-md rounded-[2rem_0_2rem_0] p-8 border-2 border-fuchsia-500/50 shadow-[0_0_30px_rgba(217,70,239,0.15)] flex flex-col items-center justify-center relative overflow-hidden -rotate-1 hover:rotate-0 transition-transform duration-500 ${tutorialStep === 1 ? 'z-50 ring-4 ring-green-500 ring-opacity-50 relative bg-black' : ''}`}>
-          <div className="absolute top-4 left-4 text-[10px] text-fuchsia-500/50 font-mono tracking-[0.2em] z-20">
-              ID: {userId.slice(0, 6)}...{userId.slice(-4)} // {publicKey ? 'CONNECTED' : 'GUEST'}
+          
+          {/* UPDATED: ID & Name Display with Edit Button (Always Visible) */}
+          <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+              <div className="text-[10px] text-fuchsia-500/50 font-mono tracking-[0.2em] border border-fuchsia-500/20 px-2 py-1 rounded bg-black/50">
+                  ID: {userName || (userId.length > 10 ? `${userId.slice(0, 6)}...` : userId)}
+              </div>
+              <button 
+                onClick={changeName}
+                className="text-xs text-fuchsia-400 hover:text-white bg-fuchsia-500/10 hover:bg-fuchsia-500/30 p-1 rounded transition-colors"
+                title="Change Name"
+              >
+                ✏️
+              </button>
           </div>
+
           <div className="absolute inset-0 opacity-20 pointer-events-none select-none overflow-hidden">
             {matrixDrops.map((drop) => (
               <div key={drop.id} className="absolute top-0 text-[10px] text-fuchsia-500 font-mono leading-none break-all"
@@ -635,8 +667,8 @@ function GameContent() {
                               <div className="flex items-center gap-3">
                                   <span className={`font-black w-6 text-center italic ${index === 0 ? 'text-yellow-400 text-lg drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]' : index === 1 ? 'text-gray-300 text-md' : index === 2 ? 'text-orange-400 text-md' : 'text-gray-600 text-xs'}`}>{index === 0 ? '1ST' : index === 1 ? '2ND' : index === 2 ? '3RD' : `#${index + 1}`}</span>
                                   <span className={`text-xs tracking-tight ${player.id === userId ? 'text-cyan-300 font-bold' : ''}`}>
-                                      {/* Smart truncate wallet address */}
-                                      {player.wallet.length > 20 ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` : player.wallet}
+                                      {/* UPDATED: Show Name OR Wallet */}
+                                      {player.userName ? player.userName : (player.wallet.length > 10 ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` : player.wallet)}
                                       {player.id === userId && <span className="text-[10px] ml-1 opacity-70">{t.you}</span>}
                                   </span>
                               </div>
@@ -699,12 +731,30 @@ function GameContent() {
               {modal.title}
             </h3>
             
-            <p className="text-gray-300 mb-8 font-mono text-sm leading-relaxed">
+            <p className="text-gray-300 mb-6 font-mono text-sm leading-relaxed">
               {modal.message}
             </p>
 
+            {/* Input Field for Prompt */}
+            {modal.type === 'prompt' && (
+                <div className="mb-6">
+                    <input 
+                        ref={modalInputRef}
+                        type="text" 
+                        placeholder={modal.inputPlaceholder}
+                        className="w-full bg-gray-900 border border-fuchsia-500/50 rounded p-2 text-white font-mono focus:outline-none focus:border-fuchsia-400 focus:ring-1 focus:ring-fuchsia-400 transition-all"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                if (modal.onConfirm) modal.onConfirm(e.currentTarget.value);
+                                closeModal();
+                            }
+                        }}
+                    />
+                </div>
+            )}
+
             <div className="flex justify-end gap-3">
-              {modal.type === 'confirm' && (
+              {(modal.type === 'confirm' || modal.type === 'prompt') && (
                 <button 
                   onClick={closeModal}
                   className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white border border-gray-600 hover:border-gray-400 rounded transition-all"
@@ -714,7 +764,10 @@ function GameContent() {
               )}
               <button 
                 onClick={() => {
-                  if (modal.onConfirm) modal.onConfirm();
+                  if (modal.onConfirm) {
+                      const val = modalInputRef.current?.value;
+                      modal.onConfirm(val);
+                  }
                   closeModal();
                 }}
                 className="px-6 py-2 text-xs font-bold uppercase tracking-wider bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded shadow-[0_0_15px_rgba(217,70,239,0.5)] transition-all"

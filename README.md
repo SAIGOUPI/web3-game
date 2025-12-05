@@ -2,6 +2,8 @@
 
 A cyberpunk-themed idle clicker game where you simulate the journey of a Web3 developer, from writing the first line of code to minting your own achievement NFT on the Solana blockchain.
 
+![PREVIEW](assets/img/posts/README/image.png)
+
 🎮 Game Mechanics
 
 This is a classic incremental (idle) game with a Web3 twist.

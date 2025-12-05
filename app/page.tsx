@@ -48,7 +48,16 @@ const TRANSLATIONS = {
     connectFirst: "请先连接钱包！",
     mintFailed: "铸造失败",
     resetConfirm: "确定要重置所有游戏进度吗？此操作不可逆！",
-    enterName: "请输入新的黑客代号 (Max 12):"
+    enterName: "请输入新的黑客代号 (Max 12):",
+    // Tutorial (Missing keys restored)
+    tutorialNext: "下一步 // NEXT",
+    tutorialFinish: "开始创业 // START",
+    step1Title: "系统接入: 核心循环",
+    step1Desc: "点击左侧按钮编写代码。每一行代码价值 $1。这是你的原始资本积累方式。",
+    step2Title: "资源扩张: 黑市交易",
+    step2Desc: "在右侧商店购买咖啡、键盘或雇佣员工。他们会自动为你产出代码，实现躺赚。",
+    step3Title: "终极目标: 链上成就",
+    step3Desc: "当资产达到 $100,000 时，连接 Phantom 钱包 (仅限 Solana Devnet) 铸造你的独角兽 NFT 勋章！"
   },
   en: {
     title: "Web3 Founder Sim",
@@ -82,7 +91,16 @@ const TRANSLATIONS = {
     connectFirst: "Please connect wallet first!",
     mintFailed: "Mint Failed",
     resetConfirm: "Are you sure you want to reset all progress? This cannot be undone!",
-    enterName: "Enter new hacker alias (Max 12):"
+    enterName: "Enter new hacker alias (Max 12):",
+    // Tutorial (Missing keys restored)
+    tutorialNext: "NEXT >>",
+    tutorialFinish: "INITIALIZE >>",
+    step1Title: "SYSTEM INIT: CORE LOOP",
+    step1Desc: "Click the button to write code. Each line earns you $1. This is your seed capital.",
+    step2Title: "EXPANSION: BLACK MARKET",
+    step2Desc: "Buy coffee, keyboards, or hire devs here. They generate income automatically (Passive Income).",
+    step3Title: "OBJECTIVE: ON-CHAIN PROOF",
+    step3Desc: "Reach $100,000 to unlock NFT minting. Connect Phantom Wallet (Solana Devnet Only) to claim your trophy!"
   }
 };
 
@@ -240,6 +258,10 @@ function GameContent() {
       }
       currentId = guestId;
     }
+    
+    // FIXED: Clear username immediately when switching identities to prevent flickering
+    // This ensures render cycle doesn't use old name with new userId
+    setUserName(""); 
     setUserId(currentId);
   }, [publicKey]);
 
@@ -337,12 +359,20 @@ function GameContent() {
         const currentName = userNameRef.current;
         if (currentScore > 0) {
             try {
-                await setDoc(doc(db, "leaderboard", userId), {
+                // Construct payload dynamically to avoid overwriting name with null
+                const payload: any = {
                     wallet: userId,
-                    userName: currentName || null,
                     score: currentScore,
                     updatedAt: Date.now()
-                }, { merge: true });
+                };
+                
+                // Only update userName if we have a valid one locally
+                // This prevents wiping the server-side name if local state is empty/loading
+                if (currentName && currentName.trim() !== "") {
+                    payload.userName = currentName;
+                }
+
+                await setDoc(doc(db, "leaderboard", userId), payload, { merge: true });
             } catch (e) { console.error(e); }
         }
     }, 5000);
@@ -662,19 +692,35 @@ function GameContent() {
               {!db ? <div className="text-xs text-cyan-500/50 p-4 text-center border border-dashed border-cyan-900 rounded font-mono">[ SYSTEM OFFLINE ]<br/>Connect Firebase</div> : (
                   <div className="space-y-2 font-mono">
                       {leaderboard.length === 0 && <div className="text-cyan-500/50 text-sm text-center py-4 animate-pulse">{t.waiting}</div>}
-                      {leaderboard.map((player, index) => (
+                      {leaderboard.map((player, index) => {
+                          // Calculate display name logic
+                          let displayName = player.userName; // Default to remote name
+                          
+                          // If it's me, and I have a local name input, override to prevent flickering
+                          if (player.id === userId && userName) {
+                              displayName = userName;
+                          }
+
+                          // Fallback to wallet address if no name exists
+                          if (!displayName) {
+                              displayName = player.wallet.length > 10 
+                                  ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` 
+                                  : player.wallet;
+                          }
+
+                          return (
                           <div key={player.id} className={`flex justify-between items-center p-2 border-l-2 transform transition-all hover:pl-4 ${player.id === userId ? 'bg-cyan-900/20 border-cyan-400 text-cyan-100' : 'bg-gray-900/30 border-gray-700 text-gray-400 hover:bg-gray-800'}`}>
                               <div className="flex items-center gap-3">
                                   <span className={`font-black w-6 text-center italic ${index === 0 ? 'text-yellow-400 text-lg drop-shadow-[0_0_5px_rgba(250,204,21,0.5)]' : index === 1 ? 'text-gray-300 text-md' : index === 2 ? 'text-orange-400 text-md' : 'text-gray-600 text-xs'}`}>{index === 0 ? '1ST' : index === 1 ? '2ND' : index === 2 ? '3RD' : `#${index + 1}`}</span>
                                   <span className={`text-xs tracking-tight ${player.id === userId ? 'text-cyan-300 font-bold' : ''}`}>
-                                      {/* UPDATED: Show Name OR Wallet */}
-                                      {player.userName ? player.userName : (player.wallet.length > 10 ? `${player.wallet.slice(0, 4)}...${player.wallet.slice(-4)}` : player.wallet)}
+                                      {displayName}
                                       {player.id === userId && <span className="text-[10px] ml-1 opacity-70">{t.you}</span>}
                                   </span>
                               </div>
                               <span className="text-cyan-400 font-bold text-sm">${player.score?.toLocaleString()}</span>
                           </div>
-                      ))}
+                          );
+                      })}
                   </div>
               )}
           </div>
